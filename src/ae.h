@@ -69,10 +69,10 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
 typedef struct aeFileEvent {
-    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
+    int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) 文件事件的类型 */
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
-    void *clientData;
+    void *clientData; //指向用户自定义数据的指针。例如 客户端结构体
 } aeFileEvent;
 
 /* Time event structure */
@@ -81,7 +81,7 @@ typedef struct aeTimeEvent {
     long when_sec; /* seconds 秒数*/
     long when_ms; /* milliseconds 毫秒数*/
     aeTimeProc *timeProc; // 处理器函数
-    aeEventFinalizerProc *finalizerProc; // 终结器函数
+    aeEventFinalizerProc *finalizerProc; // 事件回收函数
     void *clientData; // 客户端数据
     struct aeTimeEvent *prev;
     struct aeTimeEvent *next;
@@ -93,19 +93,19 @@ typedef struct aeFiredEvent {
     int mask;
 } aeFiredEvent;
 
-/* State of an event based program */
+/* State of an event based program 事件循环结构体*/
 typedef struct aeEventLoop {
-    int maxfd;   /* highest file descriptor currently registered */
-    int setsize; /* max number of file descriptors tracked */
-    long long timeEventNextId;
-    time_t lastTime;     /* Used to detect system clock skew */
-    aeFileEvent *events; /* Registered events IO事件*/
+    int maxfd;   /* highest file descriptor currently registered 当前已注册的最高文件描述符 */
+    int setsize; /* max number of file descriptors tracked 跟踪的文件描述符的最大数量，它是事件循环初始化时设置的，用于分配 events 和 fired 数组的空间*/
+    long long timeEventNextId; //时间事件的下一个ID，用于为新创建的时间事件分配唯一的ID。
+    time_t lastTime;     /* Used to detect system clock skew  用于检测系统时钟偏移。这有助于在系统时钟发生改变时，确保时间事件能够正确地处理。*/
+    aeFileEvent *events; /* Registered events 注册的 I/O 事件，是一个数组，每个元素代表一个文件描述符上的文件事件。*/
     aeFiredEvent *fired; /* Fired events 已触发事件 */
     aeTimeEvent *timeEventHead; /*时间事件链表头部*/
-    int stop;
-    void *apidata; /* This is used for polling API specific data */
-    aeBeforeSleepProc *beforesleep;
-    aeBeforeSleepProc *aftersleep;
+    int stop; //控制事件循环是否停止。如果设置为 1，事件循环将停止执行。
+    void *apidata; /* This is used for polling API specific data 存储与特定 I/O 多路复用 API 相关的数据，例如 epoll 或 kqueue 的数据结构。*/
+    aeBeforeSleepProc *beforesleep; //事件循环在进入阻塞等待之前调用的回调函数。
+    aeBeforeSleepProc *aftersleep; //事件循环在阻塞等待结束之后调用的回调函数。
 } aeEventLoop;
 
 /* Prototypes */

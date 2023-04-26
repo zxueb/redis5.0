@@ -280,7 +280,8 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
      * Here we try to detect system clock skews, and force all the time
      * events to be processed ASAP when this happens: the idea is that
      * processing events earlier is less dangerous than delaying them
-     * indefinitely, and practice suggests it is. */
+     * indefinitely, and practice suggests it is.
+     * 这部分代码处理了系统时钟突然发生偏移（如向后调整）的情况。当时钟向后调整时，将所有时间事件的触发时间重置为 0，以便立即执行它们。这样做是因为立即执行事件通常比无限期延迟更安全。*/
     if (now < eventLoop->lastTime) {
         te = eventLoop->timeEventHead;
         while(te) {
@@ -373,7 +374,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         struct timeval tv, *tvp;
 
         if (flags & AE_TIME_EVENTS && !(flags & AE_DONT_WAIT))
-            shortest = aeSearchNearestTimer(eventLoop);
+            shortest = aeSearchNearestTimer(eventLoop);//拿到时间最近的时间事件
         if (shortest) {
             long now_sec, now_ms;
 
@@ -381,7 +382,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             tvp = &tv;
 
             /* How many milliseconds we need to wait for the next
-             * time event to fire? */
+             * time event to fire? 计算距离最近时间事件触发的毫秒数*/
             long long ms =
                 (shortest->when_sec - now_sec)*1000 +
                 shortest->when_ms - now_ms;
@@ -407,18 +408,19 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
 
         /* Call the multiplexing API, will return only on timeout or when
-         * some event fires. */
+         * some event fires.
+         * tvp指定文件事件的超时事件，如果没有文件事件发生，aeApiPoll 会在最近的时间事件到期时返回*/
         numevents = aeApiPoll(eventLoop, tvp);
 
-        /* After sleep callback. */
+        /* After sleep callback. 可以扩展开发实现自己的回调，目前redis自己的场景中并没有应用该回调*/
         if (eventLoop->aftersleep != NULL && flags & AE_CALL_AFTER_SLEEP)
             eventLoop->aftersleep(eventLoop);
 
         for (j = 0; j < numevents; j++) {
             aeFileEvent *fe = &eventLoop->events[eventLoop->fired[j].fd];
-            int mask = eventLoop->fired[j].mask;
+            int mask = eventLoop->fired[j].mask; //触发事件的掩码
             int fd = eventLoop->fired[j].fd;
-            int fired = 0; /* Number of events fired for current fd. */
+            int fired = 0; /* Number of events fired for current fd.当前文件描述符触发的事件计数 */
 
             /* Normally we execute the readable event first, and the writable
              * event laster. This is useful as sometimes we may be able
@@ -431,7 +433,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
              * This is useful when, for instance, we want to do things
              * in the beforeSleep() hook, like fsynching a file to disk,
              * before replying to a client. */
-            int invert = fe->mask & AE_BARRIER;
+            int invert = fe->mask & AE_BARRIER; //AE_BARRIER 标志用于改变文件事件的读/写回调函数的调用顺序
 
             /* Note the "fe->mask & mask & ..." code: maybe an already
              * processed event removed an element that fired and we still
