@@ -2779,14 +2779,15 @@ int processCommand(client *c) {
     }
 
     /* Exec the command 如果客户端正处于事务状态，那么将命令添加到事务队列；否则，直接调用命令处理函数*/
+    //如果客户端有CLIENT_MULTI标记，并且当前不是exec、discard、multi和watch命令
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand)
     {
-        queueMultiCommand(c);
+        queueMultiCommand(c); //将命令入队保存，等待后续一起处理
         addReply(c,shared.queued);
     } else {
-        /*调用call函数执行客户端请求的命令。接着，将客户端的woff（等待偏移量）设置为主节点的复制偏移量。如果有客户端因某些键而被阻塞，handleClientsBlockedOnKeys函数将处理这些客户端。*/
+        /*调用call函数执行客户端请求的命令。接着，将客户端的woff（等待偏移量）设置为主节点的复制偏移量。如果有客户端因某些键而被阻塞，handleClientsBlockedOnKeys函数（在beforesleep中）将处理这些客户端。*/
         call(c,CMD_CALL_FULL);
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))

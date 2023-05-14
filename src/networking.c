@@ -1470,15 +1470,17 @@ void processInputBuffer(client *c) {
         /* Determine request type when unknown. */
         if (!c->reqtype) {
             if (c->querybuf[c->qb_pos] == '*') {
-                c->reqtype = PROTO_REQ_MULTIBULK;
+                c->reqtype = PROTO_REQ_MULTIBULK; //符合RESP协议的命令
             } else {
-                c->reqtype = PROTO_REQ_INLINE;
+                c->reqtype = PROTO_REQ_INLINE; //管道类型命令
             }
         }
 
         if (c->reqtype == PROTO_REQ_INLINE) {
+            //对于管道类型命令，调用processInlineBuffer函数解析
             if (processInlineBuffer(c) != C_OK) break;
         } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+            //对于RESP协议命令，调用processMultibulkBuffer函数解析
             if (processMultibulkBuffer(c) != C_OK) break;
         } else {
             serverPanic("Unknown request type");
