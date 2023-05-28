@@ -102,6 +102,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(mask);
 
     while(1) {
+        //从aof_rewrite_buf_blocks列表中取出数据块
         ln = listFirst(server.aof_rewrite_buf_blocks);
         block = ln ? ln->value : NULL;
         if (server.aof_stop_sending_diff || !block) {
@@ -110,6 +111,7 @@ void aofChildWriteDiffData(aeEventLoop *el, int fd, void *privdata, int mask) {
             return;
         }
         if (block->used > 0) {
+            //调用write将数据块写入主进程和重写子进程间的管道
             nwritten = write(server.aof_pipe_write_data_to_child,
                              block->buf,block->used);
             if (nwritten <= 0) return;
@@ -162,7 +164,9 @@ void aofRewriteBufferAppend(unsigned char *s, unsigned long len) {
 
     /* Install a file event to send data to the rewrite child if there is
      * not one already. */
+    //检查aof_pipe_write_data_to_child描述符上是否有事件
     if (aeGetFileEvents(server.el,server.aof_pipe_write_data_to_child) == 0) {
+        //如果没有注册事件，那么注册一个写事件，回调函数是aofChildWriteDiffData
         aeCreateFileEvent(server.el, server.aof_pipe_write_data_to_child,
             AE_WRITABLE, aofChildWriteDiffData, NULL);
     }
@@ -1287,7 +1291,7 @@ int rewriteModuleObject(rio *r, robj *key, robj *o) {
 ssize_t aofReadDiffFromParent(void) {
     char buf[65536]; /* Default pipe buffer size on most Linux systems. */
     ssize_t nread, total = 0;
-
+    //调用read函数从aof_pipe_read_data_from_parent中读取数据
     while ((nread =
             read(server.aof_pipe_read_data_from_parent,buf,sizeof(buf))) > 0) {
         server.aof_child_diff = sdscatlen(server.aof_child_diff,buf,nread);
@@ -1581,7 +1585,7 @@ int rewriteAppendOnlyFileBackground(void) {
         closeClildUnusedResourceAfterFork();
         redisSetProcTitle("redis-aof-rewrite");
         snprintf(tmpfile,256,"temp-rewriteaof-bg-%d.aof", (int) getpid());
-        if (rewriteAppendOnlyFile(tmpfile) == C_OK) {
+        if (rewriteAppendOnlyFile(tmpfile) == C_OK) { //子进程调用rewriteAppendOnlyFile进行AOF重写
             size_t private_dirty = zmalloc_get_private_dirty(-1);
 
             if (private_dirty) {
@@ -1613,8 +1617,8 @@ int rewriteAppendOnlyFileBackground(void) {
             "Background append only file rewriting started by pid %d",childpid);
         server.aof_rewrite_scheduled = 0;
         server.aof_rewrite_time_start = time(NULL);
-        server.aof_child_pid = childpid;
-        updateDictResizePolicy();
+        server.aof_child_pid = childpid; //记录重写子进程的进程号
+        updateDictResizePolicy(); //关闭rehash功能，防止aof重写的过程中发生大量的内存移动，重写时就需要执行大量的写时复制，影响性能
         /* We set appendseldb to -1 in order to force the next call to the
          * feedAppendOnlyFile() to issue a SELECT command, so the differences
          * accumulated by the parent into server.aof_rewrite_buf will start
@@ -1628,11 +1632,12 @@ int rewriteAppendOnlyFileBackground(void) {
 
 void bgrewriteaofCommand(client *c) {
     if (server.aof_child_pid != -1) {
+        //有AOF重写子进程，因此不执行重写
         addReplyError(c,"Background append only file rewriting already in progress");
     } else if (server.rdb_child_pid != -1) {
-        server.aof_rewrite_scheduled = 1;
+        server.aof_rewrite_scheduled = 1; //有RDB子进程，将AOF重写设置为待调度运行
         addReplyStatus(c,"Background append only file rewriting scheduled");
-    } else if (rewriteAppendOnlyFileBackground() == C_OK) {
+    } else if (rewriteAppendOnlyFileBackground() == C_OK) { //实际执行AOF重写
         addReplyStatus(c,"Background append only file rewriting started");
     } else {
         addReply(c,shared.err);
