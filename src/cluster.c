@@ -1901,6 +1901,7 @@ int clusterProcessPacket(clusterLink *link) {
         }
 
         /* Update our info about the node */
+        //当收到Pong消息时，更新本地记录的目标节点Pong消息最新返回时间
         if (link->node && type == CLUSTERMSG_TYPE_PONG) {
             link->node->pong_received = now;
             link->node->ping_sent = 0;
@@ -2036,6 +2037,7 @@ int clusterProcessPacket(clusterLink *link) {
         }
 
         /* Get info from the gossip section */
+        //调用clusterProcessGossipSection函数处理Ping或Pong消息的消息体
         if (sender) clusterProcessGossipSection(hdr,link);
     } else if (type == CLUSTERMSG_TYPE_FAIL) {
         clusterNode *failing;
@@ -2187,7 +2189,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     UNUSED(el);
     UNUSED(mask);
 
-    while(1) { /* Read as long as there is data to read. */
+    while(1) { /* Read as long as there is data to read. */ //持续读取收到的数据
         rcvbuflen = sdslen(link->rcvbuf);
         if (rcvbuflen < 8) {
             /* First, obtain the first 8 bytes to get the full message
@@ -2213,7 +2215,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
             if (readlen > sizeof(buf)) readlen = sizeof(buf);
         }
 
-        nread = read(fd,buf,readlen);
+        nread = read(fd,buf,readlen); //读取收到的数据
         if (nread == -1 && errno == EAGAIN) return; /* No more data ready. */
 
         if (nread <= 0) {
@@ -2230,8 +2232,9 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         }
 
         /* Total length obtained? Process this packet. */
+        //读取到一个完整的消息
         if (rcvbuflen >= 8 && rcvbuflen == ntohl(hdr->totlen)) {
-            if (clusterProcessPacket(link)) {
+            if (clusterProcessPacket(link)) { //调用clusterProcessPacket函数处理消息
                 sdsfree(link->rcvbuf);
                 link->rcvbuf = sdsempty();
             } else {
@@ -2446,8 +2449,8 @@ void clusterSendPing(clusterLink *link, int type) {
 
     /* Populate the header. */
     if (link->node && type == CLUSTERMSG_TYPE_PING)
-        link->node->ping_sent = mstime();
-    clusterBuildMessageHdr(hdr,type);
+        link->node->ping_sent = mstime(); //如果当前是Ping消息，那么在发送目标节点的结构中记录Ping消息的发送时间
+    clusterBuildMessageHdr(hdr,type); //调用clusterBuildMessageHdr函数构建Ping消息头
 
     /* Populate the gossip fields */
     int maxiterations = wanted*3;
@@ -2478,7 +2481,7 @@ void clusterSendPing(clusterLink *link, int type) {
         if (clusterNodeIsInGossipSection(hdr,gossipcount,this)) continue;
 
         /* Add it */
-        clusterSetGossipEntry(hdr,gossipcount,this);
+        clusterSetGossipEntry(hdr,gossipcount,this); //调用clusterSetGossipEntry设置Ping消息体
         freshnodes--;
         gossipcount++;
     }
@@ -3475,24 +3478,27 @@ void clusterCron(void) {
 
     /* Ping some random node 1 time every 10 iterations, so that we usually ping
      * one random node every second. */
-    if (!(iteration % 10)) {
+    if (!(iteration % 10)) {  //每执行10次clusterCron函数，执行1次该分支代码
         int j;
 
         /* Check a few random nodes and ping the one with the oldest
          * pong_received time. */
-        for (j = 0; j < 5; j++) {
+        for (j = 0; j < 5; j++) { //随机选5个节点
             de = dictGetRandomKey(server.cluster->nodes);
             clusterNode *this = dictGetVal(de);
 
             /* Don't ping nodes disconnected or with a ping currently active. */
+            //不向断连的节点、当前节点和正在握手的节点发送Ping消息
             if (this->link == NULL || this->ping_sent != 0) continue;
             if (this->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
                 continue;
+            //遴选向当前节点发送Pong消息最早的节点
             if (min_pong_node == NULL || min_pong > this->pong_received) {
                 min_pong_node = this;
                 min_pong = this->pong_received;
             }
         }
+        //如果遴选出了最早向当前节点发送Pong消息的节点，那么调用clusterSendPing函数向该节点发送Ping消息
         if (min_pong_node) {
             serverLog(LL_DEBUG,"Pinging node %.40s", min_pong_node->name);
             clusterSendPing(min_pong_node->link, CLUSTERMSG_TYPE_PING);
@@ -5518,7 +5524,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     clusterNode *n = NULL;
     robj *firstkey = NULL;
     int multiple_keys = 0;
-    multiState *ms, _ms;
+    multiState *ms, _ms; //使用multiState结构体封装要查询的命令
     multiCmd mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0;
 
@@ -5535,7 +5541,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
 
     /* We handle all the cases as if they were EXEC commands, so we have
      * a common code path for everything */
-    if (cmd->proc == execCommand) {
+    if (cmd->proc == execCommand) { //如果收到EXEC命令，那么就要检查MULTI后续命令访问的key情况，所以从客户端变量c中获取mstate
         /* If CLIENT_MULTI flag is not set EXEC is just going to return an
          * error. */
         if (!(c->flags & CLIENT_MULTI)) return myself;
@@ -5544,12 +5550,12 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         /* In order to have a single codepath create a fake Multi State
          * structure if the client is not in MULTI/EXEC state, this way
          * we have a single codepath below. */
-        ms = &_ms;
+        ms = &_ms; //如果是其他命令，那么也使用multiState结构体封装命令
         _ms.commands = &mc;
-        _ms.count = 1;
-        mc.argv = argv;
-        mc.argc = argc;
-        mc.cmd = cmd;
+        _ms.count = 1; //封装的命令个数为1
+        mc.argv = argv; //命令的参数
+        mc.argc = argc; //命令的参数个数
+        mc.cmd = cmd; //命令本身
     }
 
     /* Check that all the keys are in the same hash slot, and obtain this
@@ -5562,19 +5568,20 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mcmd = ms->commands[i].cmd;
         margc = ms->commands[i].argc;
         margv = ms->commands[i].argv;
-
+        //获取命令中的key位置和key个数
         keyindex = getKeysFromCommand(mcmd,margv,margc,&numkeys);
+        //针对每个key执行
         for (j = 0; j < numkeys; j++) {
             robj *thiskey = margv[keyindex[j]];
             int thisslot = keyHashSlot((char*)thiskey->ptr,
-                                       sdslen(thiskey->ptr));
+                                       sdslen(thiskey->ptr));  //获取key所属的slot
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot
                  * and node. */
                 firstkey = thiskey;
                 slot = thisslot;
-                n = server.cluster->slots[slot];
+                n = server.cluster->slots[slot]; //查找key所属的slot对应的集群节点
 
                 /* Error: If a slot is not served, we are in "cluster down"
                  * state. However the state is yet to be updated, so this was
@@ -5592,11 +5599,12 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * can safely serve the request, otherwise we return a TRYAGAIN
                  * error). To do so we set the importing/migrating state and
                  * increment a counter for every missing key. */
+                //如果key所属的slot正在迁出，则设置migrating_slot为1
                 if (n == myself &&
                     server.cluster->migrating_slots_to[slot] != NULL)
                 {
                     migrating_slot = 1;
-                } else if (server.cluster->importing_slots_from[slot] != NULL) {
+                } else if (server.cluster->importing_slots_from[slot] != NULL) { //如果key所属的slot正在迁入，则设置importing_slot为1
                     importing_slot = 1;
                 }
             } else {
@@ -5618,6 +5626,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             }
 
             /* Migarting / Improrting slot? Count keys we don't have. */
+            //如果key所属slot正在迁出或迁入，并且当前访问的key不在本地数据库，那么增加missing_keys的大小
             if ((migrating_slot || importing_slot) &&
                 lookupKeyRead(&server.db[0],thiskey) == NULL)
             {

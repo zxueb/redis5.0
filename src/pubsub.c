@@ -65,21 +65,21 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
-        de = dictFind(server.pubsub_channels,channel);
-        if (de == NULL) {
-            clients = listCreate();
-            dictAdd(server.pubsub_channels,channel,clients);
+        de = dictFind(server.pubsub_channels,channel); //在pubsub_channels哈希表中查找频道
+        if (de == NULL) { //如果频道不存在
+            clients = listCreate(); //创建订阅者对应的列表
+            dictAdd(server.pubsub_channels,channel,clients); //新插入频道对应的哈希项
             incrRefCount(channel);
         } else {
-            clients = dictGetVal(de);
+            clients = dictGetVal(de); //新插入频道对应的哈希项
         }
-        listAddNodeTail(clients,c);
+        listAddNodeTail(clients,c); //将订阅者加入到订阅者列表
     }
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.subscribebulk);
     addReplyBulk(c,channel);
-    addReplyLongLong(c,clientSubscriptionsCount(c));
+    addReplyLongLong(c,clientSubscriptionsCount(c)); //给订阅者返回成功订阅的频道数量
     return retval;
 }
 
@@ -229,6 +229,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     listIter li;
 
     /* Send to clients listening for that channel */
+    //查找频道是否存在
     de = dictFind(server.pubsub_channels,channel);
     if (de) {
         list *list = dictGetVal(de);
@@ -236,6 +237,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
         listIter li;
 
         listRewind(list,&li);
+        //遍历频道对应的订阅者，向订阅者发送要发布的消息
         while ((ln = listNext(&li)) != NULL) {
             client *c = ln->value;
 
@@ -315,12 +317,13 @@ void punsubscribeCommand(client *c) {
 }
 
 void publishCommand(client *c) {
+    //调用pubsubPublishMessage发布消息
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
-    if (server.cluster_enabled)
+    if (server.cluster_enabled) //如果Redis启用了cluster，那么在集群中发送publish命令
         clusterPropagatePublish(c->argv[1],c->argv[2]);
     else
         forceCommandPropagation(c,PROPAGATE_REPL);
-    addReplyLongLong(c,receivers);
+    addReplyLongLong(c,receivers); //返回接收消息的订阅者数量
 }
 
 /* PUBSUB command for Pub/Sub introspection. */
